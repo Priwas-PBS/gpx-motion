@@ -18,6 +18,8 @@ const ui = {
   heartRate: $('heart-rate'), heartRateText: $('heart-rate-text'),
   trimStart: $('trim-start'), trimEnd: $('trim-end'), trimValue: $('trim-value'),
   trimFill: $('trim-fill'), trimDetail: $('trim-detail'), trimPreview: $('trim-preview'),
+  statsDistance: $('stats-distance'), statsElevation: $('stats-elevation'), statsMovingTime: $('stats-moving-time'),
+  statsHeartRate: $('stats-heart-rate'),
   hudTop: $('hud-top'), hudTopValue: $('hud-top-value'), hudSize: $('hud-size'), hudSizeValue: $('hud-size-value'),
   labelSize: $('label-size'), labelSizeValue: $('label-size-value'), cameraDistance: $('camera-distance'),
   cameraDistanceValue: $('camera-distance-value'), cameraHeight: $('camera-height'),
@@ -202,6 +204,95 @@ function formatTrimTime(seconds) {
   const minutes = Math.floor((whole % 3600) / 60);
   const secs = whole % 60;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function parseDurationInput(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const parts = text.split(':');
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return NaN;
+  const numbers = parts.map(Number);
+  const seconds = numbers.at(-1);
+  const minutes = numbers.at(-2);
+  if (seconds >= 60 || (parts.length === 3 && minutes >= 60)) return NaN;
+  return parts.length === 3
+    ? numbers[0] * 3600 + minutes * 60 + seconds
+    : minutes * 60 + seconds;
+}
+
+function clearStatisticsOverrides() {
+  ui.statsDistance.value = '';
+  ui.statsElevation.value = '';
+  ui.statsMovingTime.value = '';
+  ui.statsHeartRate.value = '';
+  ui.statsDistance.setCustomValidity('');
+  ui.statsElevation.setCustomValidity('');
+  ui.statsMovingTime.setCustomValidity('');
+  ui.statsHeartRate.setCustomValidity('');
+}
+
+function effectiveActivityStatistics(paceMode = metricMode() === 'pace') {
+  if (!state.activity) return null;
+  const distanceText = ui.statsDistance.value.trim();
+  const elevationText = ui.statsElevation.value.trim();
+  const movingText = ui.statsMovingTime.value.trim();
+  const heartRateText = ui.statsHeartRate.value.trim();
+  const manualDistance = Number(distanceText);
+  const manualElevation = Number(elevationText);
+  const manualMovingSeconds = parseDurationInput(movingText);
+  const manualHeartRate = Number(heartRateText);
+  const automaticMovingSeconds = paceMode
+    ? (state.activity.movingSecondsPace || state.activity.movingSeconds)
+    : (state.activity.movingSecondsSpeed || state.activity.movingSeconds);
+  return {
+    distance: distanceText && Number.isFinite(manualDistance) && manualDistance > 0
+      ? manualDistance * 1000
+      : state.activity.totalDistance,
+    elevationGain: elevationText && Number.isFinite(manualElevation) && manualElevation >= 0
+      ? manualElevation
+      : state.activity.elevationGain,
+    movingSeconds: movingText && Number.isFinite(manualMovingSeconds) && manualMovingSeconds > 0
+      ? manualMovingSeconds
+      : automaticMovingSeconds,
+    averageHeartRate: heartRateText && Number.isFinite(manualHeartRate) && manualHeartRate >= 25 && manualHeartRate <= 250
+      ? manualHeartRate
+      : state.activity.averageHeartRate,
+  };
+}
+
+function updateStatisticsDisplay() {
+  if (!state.activity) {
+    ui.statsDistance.placeholder = 'Automatic';
+    ui.statsElevation.placeholder = 'Automatic';
+    ui.statsMovingTime.placeholder = 'Automatic (hh:mm:ss)';
+    ui.statsHeartRate.placeholder = 'Automatic';
+    return;
+  }
+  const paceMode = metricMode() === 'pace';
+  const automaticMovingSeconds = paceMode
+    ? (state.activity.movingSecondsPace || state.activity.movingSeconds)
+    : (state.activity.movingSecondsSpeed || state.activity.movingSeconds);
+  ui.statsDistance.placeholder = `Automatic (${(state.activity.totalDistance / 1000).toFixed(2)})`;
+  ui.statsElevation.placeholder = `Automatic (${Math.round(state.activity.elevationGain)})`;
+  ui.statsMovingTime.placeholder = `Automatic (${formatTrimTime(automaticMovingSeconds)})`;
+  ui.statsHeartRate.placeholder = Number.isFinite(state.activity.averageHeartRate)
+    ? `Automatic (${Math.round(state.activity.averageHeartRate)})`
+    : 'Not available in GPX';
+  const statistics = effectiveActivityStatistics(paceMode);
+  ui.activityHeading.textContent = `${state.activity.title} · ${(statistics.distance / 1000).toFixed(1)} km`;
+}
+
+function seedAutomaticStatistic(control) {
+  if (!state.activity || control.value.trim()) return;
+  let value = null;
+  if (control === ui.statsDistance) value = (state.activity.totalDistance / 1000).toFixed(2);
+  if (control === ui.statsElevation) value = String(Math.round(state.activity.elevationGain));
+  if (control === ui.statsHeartRate && Number.isFinite(state.activity.averageHeartRate)) {
+    value = String(Math.round(state.activity.averageHeartRate));
+  }
+  if (value == null) return;
+  control.value = value;
+  control.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function trimRangeSeconds(activity = state.sourceActivity) {
@@ -409,6 +500,7 @@ function applyTrimSelection() {
   const end = Number(ui.trimEnd.value) / totalSeconds;
   try {
     const chosenTitle = ui.title.value;
+    clearStatisticsOverrides();
     state.activity = parseGpx(state.sourceText, state.sourceFileName, start, end);
     state.currentProgress = 0;
     resetCameraSmoothing();
@@ -431,7 +523,7 @@ function applyTrimSelection() {
       discardPreparedMap();
     }
     if (chosenTitle) ui.title.value = chosenTitle;
-    ui.activityHeading.textContent = `${state.activity.title} · ${(state.activity.totalDistance / 1000).toFixed(1)} km`;
+    updateStatisticsDisplay();
     updateHeartRateAvailability();
     updateTrimControl();
     drawPreviewOverlays(0);
@@ -487,6 +579,14 @@ function localElements(root, name) {
 function directChildText(element, name) {
   const match = Array.from(element.children).find((child) => child.localName === name);
   return match?.textContent?.trim() || '';
+}
+
+function firstNumericElement(root, names) {
+  for (const name of names) {
+    const value = Number(localElements(root, name)[0]?.textContent?.trim());
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
 }
 
 function quantile(values, p) {
@@ -554,6 +654,113 @@ function repairAndSmoothHeartRates(points) {
   });
 }
 
+function smoothedElevationProfile(points, smoothingMeters = 3) {
+  const pass = (reverse) => {
+    const values = new Array(points.length);
+    for (let step = 0; step < points.length; step += 1) {
+      const index = reverse ? points.length - 1 - step : step;
+      const neighbor = reverse ? index + 1 : index - 1;
+      const elevation = points[index].elevation;
+      const newSegment = neighbor < 0
+        || neighbor >= points.length
+        || points[index].segmentIndex !== points[neighbor].segmentIndex;
+      if (newSegment || !Number.isFinite(values[neighbor])) {
+        values[index] = elevation;
+        continue;
+      }
+      const spacing = Math.max(0.1, haversineMeters(points[index], points[neighbor]));
+      const weight = 1 - Math.exp(-spacing / smoothingMeters);
+      values[index] = lerp(values[neighbor], elevation, weight);
+    }
+    return values;
+  };
+
+  const forward = pass(false);
+  const backward = pass(true);
+  return forward.map((value, index) => (value + backward[index]) / 2);
+}
+
+function calculateElevationGain(points, thresholdMeters = 2) {
+  if (points.length < 2) return 0;
+  const elevations = smoothedElevationProfile(points);
+  let gain = 0;
+  let valley = elevations[0];
+  let peak = elevations[0];
+
+  const finishClimb = () => {
+    const climb = peak - valley;
+    if (climb >= thresholdMeters) gain += climb;
+  };
+
+  for (let index = 1; index < elevations.length; index += 1) {
+    const elevation = elevations[index];
+    if (points[index].segmentIndex !== points[index - 1].segmentIndex) {
+      finishClimb();
+      valley = elevation;
+      peak = elevation;
+      continue;
+    }
+    if (elevation > peak) {
+      peak = elevation;
+    } else if (peak - elevation >= thresholdMeters) {
+      finishClimb();
+      valley = elevation;
+      peak = elevation;
+    } else if (elevation < valley) {
+      valley = elevation;
+      peak = elevation;
+    }
+  }
+  finishClimb();
+  return gain;
+}
+
+function calculateMovingTime(points, activityMetric, fallbackSeconds) {
+  const minimumSpeed = activityMetric === 'pace' ? 0.2 : 0.8;
+  const maximumSpeed = activityMetric === 'pace' ? 15 : 55;
+  let movingSeconds = 0;
+  let timedSegments = 0;
+  const intervals = [];
+  let hasSegmentBreak = false;
+
+  for (let index = 1; index < points.length; index += 1) {
+    if (points[index].segmentIndex !== points[index - 1].segmentIndex) {
+      hasSegmentBreak = true;
+      continue;
+    }
+    const seconds = (points[index].timestamp - points[index - 1].timestamp) / 1000;
+    if (!Number.isFinite(seconds) || seconds <= 0) continue;
+    timedSegments += 1;
+    intervals.push(seconds);
+    const distance = Math.max(0, points[index].distance - points[index - 1].distance);
+    const speed = Number.isFinite(points[index].recordedSpeed)
+      ? points[index].recordedSpeed
+      : distance / seconds;
+    if (speed >= minimumSpeed && speed <= maximumSpeed) movingSeconds += seconds;
+  }
+
+  // Some exported GPX files already contain a pause-free moving-time
+  // timeline. A long, uninterrupted stream with an almost perfectly uniform
+  // timestamp cadence is a strong signal that pauses were handled before the
+  // export. Reapplying a GPS speed threshold would incorrectly remove periods
+  // where the receiver temporarily repeated the same coordinate.
+  if (!hasSegmentBreak && intervals.length >= 30) {
+    const sortedIntervals = [...intervals].sort((a, b) => a - b);
+    const medianInterval = sortedIntervals[Math.floor(sortedIntervals.length / 2)];
+    const tolerance = Math.max(0.25, medianInterval * 0.2);
+    const regularIntervals = intervals.filter((seconds) => Math.abs(seconds - medianInterval) <= tolerance).length;
+    const uninterrupted = intervals.every((seconds) => seconds <= medianInterval + tolerance);
+    if (medianInterval > 0 && medianInterval <= 10
+        && regularIntervals / intervals.length >= 0.98 && uninterrupted) {
+      return fallbackSeconds;
+    }
+  }
+
+  return timedSegments && movingSeconds > 0
+    ? Math.min(movingSeconds, fallbackSeconds)
+    : fallbackSeconds;
+}
+
 function trimTrackPoints(points, startFraction, endFraction) {
   // The handles now move in one-second steps, so do not silently expand a
   // short selection to the former 0.5% minimum.
@@ -591,7 +798,10 @@ function trimTrackPoints(points, startFraction, endFraction) {
   } else {
     cumulative = [0];
     for (let index = 1; index < points.length; index += 1) {
-      cumulative.push(cumulative[index - 1] + haversineMeters(points[index - 1], points[index]));
+      const segment = points[index].segmentIndex === points[index - 1].segmentIndex
+        ? haversineMeters(points[index - 1], points[index])
+        : 0;
+      cumulative.push(cumulative[index - 1] + segment);
     }
   }
   const total = cumulative.at(-1);
@@ -618,6 +828,8 @@ function trimTrackPoints(points, startFraction, endFraction) {
       elevation: lerp(a.elevation, b.elevation, t),
       timestamp: interpolateOptional(a.timestamp, b.timestamp),
       heartRate: interpolateOptional(a.heartRate, b.heartRate),
+      recordedDistance: interpolateOptional(a.recordedDistance, b.recordedDistance),
+      recordedSpeed: interpolateOptional(a.recordedSpeed, b.recordedSpeed),
     };
   };
 
@@ -628,42 +840,75 @@ function trimTrackPoints(points, startFraction, endFraction) {
     if (cumulative[index] > startPosition && cumulative[index] < endPosition) selected.push({ ...points[index] });
   }
   selected.push(pointAtPosition(endPosition));
+  selected[0].segmentStart = true;
+  for (let index = 1; index < selected.length; index += 1) {
+    selected[index].segmentStart = selected[index].segmentIndex !== selected[index - 1].segmentIndex;
+  }
   return selected;
 }
 
 function parseGpx(text, fileName, trimStart = 0, trimEnd = 1) {
   const xml = new DOMParser().parseFromString(text, 'application/xml');
   if (xml.querySelector('parsererror')) throw new Error('The GPX file is not valid XML.');
-  const trackPoints = localElements(xml, 'trkpt');
-  if (trackPoints.length < 2) throw new Error('The GPX file needs at least two track points.');
+  const trk = localElements(xml, 'trk')[0];
+  const metadata = localElements(xml, 'metadata')[0];
+  const sourceTitle = directChildText(trk || xml.documentElement, 'name') || directChildText(metadata || xml.documentElement, 'name');
+  const title = sourceTitle || fileName.replace(/\.gpx$/i, '').replaceAll('_', ' ');
+  const type = `${directChildText(trk || xml.documentElement, 'type')} ${title}`.toLowerCase();
+  const defaultMetric = /(run|running|trail|hike|walk|tek|pohod)/.test(type) ? 'pace' : 'speed';
 
-  let points = trackPoints.map((node) => {
+  const trackSegments = localElements(xml, 'trkseg');
+  const entries = trackSegments.length
+    ? trackSegments.flatMap((segment, segmentIndex) => localElements(segment, 'trkpt').map((node) => ({ node, segmentIndex })))
+    : localElements(xml, 'trkpt').map((node) => ({ node, segmentIndex: 0 }));
+  if (entries.length < 2) throw new Error('The GPX file needs at least two track points.');
+
+  let points = entries.map(({ node, segmentIndex }) => {
     const lat = Number(node.getAttribute('lat'));
     const lon = Number(node.getAttribute('lon'));
     const elevation = Number(directChildText(node, 'ele'));
     const timeText = directChildText(node, 'time');
     const timestamp = timeText ? Date.parse(timeText) : NaN;
     const heartRate = Number(localElements(node, 'hr')[0]?.textContent?.trim());
+    const recordedDistance = firstNumericElement(node, ['distance', 'DistanceMeters']);
+    const recordedSpeed = firstNumericElement(node, ['speed']);
     return {
       lat,
       lon,
       elevation: Number.isFinite(elevation) ? elevation : 0,
       timestamp,
       heartRate: Number.isFinite(heartRate) && heartRate >= 25 && heartRate <= 250 ? heartRate : null,
+      recordedDistance,
+      recordedSpeed: Number.isFinite(recordedSpeed) && recordedSpeed >= 0 ? recordedSpeed : null,
+      segmentIndex,
+      segmentStart: false,
       distance: 0,
       elapsed: 0,
       speed: 0,
     };
   }).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
   if (points.length < 2) throw new Error('The GPX file does not contain usable coordinates.');
+  points.forEach((point, index) => {
+    point.segmentStart = index === 0 || point.segmentIndex !== points[index - 1].segmentIndex;
+  });
   points = trimTrackPoints(points, trimStart, trimEnd);
 
   let distance = 0;
   let renderDistance = 0;
-  let elevationGain = 0;
   points[0].renderDistance = 0;
   for (let i = 1; i < points.length; i += 1) {
-    const segment = haversineMeters(points[i - 1], points[i]);
+    const gpsSegment = haversineMeters(points[i - 1], points[i]);
+    const hasRecordedDistance = Number.isFinite(points[i].recordedDistance)
+      && Number.isFinite(points[i - 1].recordedDistance);
+    const recordedSegment = hasRecordedDistance
+      ? points[i].recordedDistance - points[i - 1].recordedDistance
+      : NaN;
+    const recordedDistanceIsUsable = hasRecordedDistance
+      && recordedSegment >= 0
+      && recordedSegment <= Math.max(1000, gpsSegment * 5 + 50);
+    const segment = points[i].segmentStart
+      ? 0
+      : (recordedDistanceIsUsable ? recordedSegment : gpsSegment);
     distance += Number.isFinite(segment) ? segment : 0;
     points[i].distance = distance;
     const previousProjected = webMercatorPoint(points[i - 1]);
@@ -673,9 +918,9 @@ function parseGpx(text, fileName, trimStart = 0, trimEnd = 1) {
     if (dx < -0.5) dx += 1;
     renderDistance += Math.hypot(dx, projected.y - previousProjected.y);
     points[i].renderDistance = renderDistance;
-    const rise = points[i].elevation - points[i - 1].elevation;
-    if (rise > 0.35 && rise < 120) elevationGain += rise;
   }
+
+  const elevationGain = calculateElevationGain(points);
 
   const timed = points.filter((point) => Number.isFinite(point.timestamp));
   const startTime = timed[0]?.timestamp;
@@ -690,6 +935,7 @@ function parseGpx(text, fileName, trimStart = 0, trimEnd = 1) {
   }
 
   const rawSpeeds = points.map((point, i) => {
+    if (Number.isFinite(point.recordedSpeed) && point.recordedSpeed > 0) return point.recordedSpeed;
     const lo = Math.max(0, i - 2);
     const hi = Math.min(points.length - 1, i + 2);
     const dt = points[hi].elapsed - points[lo].elapsed;
@@ -700,13 +946,9 @@ function parseGpx(text, fileName, trimStart = 0, trimEnd = 1) {
   points.forEach((point, i) => { point.speed = speeds[i]; });
   const heartRates = repairAndSmoothHeartRates(points);
   if (heartRates) points.forEach((point, index) => { point.heartRate = heartRates[index]; });
-
-  const trk = localElements(xml, 'trk')[0];
-  const metadata = localElements(xml, 'metadata')[0];
-  const sourceTitle = directChildText(trk || xml.documentElement, 'name') || directChildText(metadata || xml.documentElement, 'name');
-  const title = sourceTitle || fileName.replace(/\.gpx$/i, '').replaceAll('_', ' ');
-  const type = `${directChildText(trk || xml.documentElement, 'type')} ${title}`.toLowerCase();
-  const defaultMetric = /(run|running|trail|hike|walk|tek|pohod)/.test(type) ? 'pace' : 'speed';
+  const movingSecondsPace = calculateMovingTime(points, 'pace', totalSeconds);
+  const movingSecondsSpeed = calculateMovingTime(points, 'speed', totalSeconds);
+  const movingSeconds = defaultMetric === 'pace' ? movingSecondsPace : movingSecondsSpeed;
 
   return {
     title,
@@ -714,8 +956,11 @@ function parseGpx(text, fileName, trimStart = 0, trimEnd = 1) {
     totalDistance: distance,
     totalRenderDistance: renderDistance,
     totalSeconds,
+    movingSeconds,
+    movingSecondsPace,
+    movingSecondsSpeed,
     elevationGain,
-    averageSpeed: distance / totalSeconds,
+    averageSpeed: distance / Math.max(1, movingSeconds),
     hasHeartRate: Boolean(heartRates),
     averageHeartRate: heartRates ? heartRates.reduce((sum, value) => sum + value, 0) / heartRates.length : null,
     defaultMetric,
@@ -1977,19 +2222,19 @@ async function preloadRouteTiles() {
   if (misses) state.mapErrors.add(`${misses} map area${misses === 1 ? '' : 's'} did not finish loading and may be fetched again during playback.`);
 }
 
-function displayTime(seconds, finalFrame) {
+function displayTime(seconds) {
   const whole = Math.max(0, Math.round(seconds));
   const hours = Math.floor(whole / 3600);
   const minutes = Math.floor((whole % 3600) / 60);
   const secs = whole % 60;
-  if (hours > 0 && (!finalFrame || whole >= 5400)) {
-    return finalFrame ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}` : `${hours}:${String(minutes).padStart(2, '0')}`;
-  }
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   return `${Math.floor(whole / 60)}:${String(secs).padStart(2, '0')}`;
 }
 
 function displayPace(speed) {
-  if (!Number.isFinite(speed) || speed < 0.12) speed = state.activity.averageSpeed;
+  if (!Number.isFinite(speed) || speed < 0.12) {
+    speed = state.activity.totalDistance / Math.max(1, state.activity.movingSecondsPace || state.activity.movingSeconds);
+  }
   const seconds = clamp(Math.round(1000 / speed), 1, 5999);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
@@ -2000,14 +2245,25 @@ function hudValues(videoProgress) {
   const finished = routeProgress >= 0.9995;
   const sample = sampleActivity(routeProgress);
   const paceMode = metricMode() === 'pace';
+  const statistics = effectiveActivityStatistics(paceMode);
+  const averageSpeed = statistics.distance / Math.max(1, statistics.movingSeconds);
+  const distanceScale = state.activity.totalDistance > 0
+    ? statistics.distance / state.activity.totalDistance
+    : 1;
+  const movingTimeProgress = state.activity.totalSeconds > 0
+    ? clamp(sample.elapsed / state.activity.totalSeconds, 0, 1)
+    : routeProgress;
+  const movingTime = finished
+    ? statistics.movingSeconds
+    : statistics.movingSeconds * movingTimeProgress;
   const items = [
-    { label: 'TIME', value: displayTime(finished ? state.activity.totalSeconds : sample.elapsed, finished), unit: 'elapsed' },
-    { label: finished ? (paceMode ? 'AVG. PACE' : 'AVG. SPEED') : (paceMode ? 'PACE' : 'SPEED'), value: paceMode ? displayPace(finished ? state.activity.averageSpeed : sample.speed) : `${((finished ? state.activity.averageSpeed : sample.speed) * 3.6).toFixed(1)}`, unit: paceMode ? 'min/km' : 'km/h' },
-    { label: 'DISTANCE', value: `${((finished ? state.activity.totalDistance : sample.distance) / 1000).toFixed(1)}`, unit: 'km' },
-    { label: finished ? 'ELEVATION GAIN' : 'ELEVATION', value: `${Math.round(finished ? state.activity.elevationGain : sample.elevation)}`, unit: 'm' },
+    { label: 'TIME', value: displayTime(movingTime), unit: 'moving' },
+    { label: finished ? (paceMode ? 'AVG. PACE' : 'AVG. SPEED') : (paceMode ? 'PACE' : 'SPEED'), value: paceMode ? displayPace(finished ? averageSpeed : sample.speed) : `${((finished ? averageSpeed : sample.speed) * 3.6).toFixed(1)}`, unit: paceMode ? 'min/km' : 'km/h' },
+    { label: 'DISTANCE', value: `${((finished ? statistics.distance : sample.distance * distanceScale) / 1000).toFixed(1)}`, unit: 'km' },
+    { label: finished ? 'ELEVATION GAIN' : 'ELEVATION', value: `${Math.round(finished ? statistics.elevationGain : sample.elevation)}`, unit: 'm' },
   ];
   if (ui.heartRate.checked && state.activity.hasHeartRate) {
-    const heartRate = finished ? state.activity.averageHeartRate : sample.heartRate;
+    const heartRate = finished ? statistics.averageHeartRate : sample.heartRate;
     items.push({ label: finished ? 'AVG. HEART RATE' : 'HEART RATE', value: `${Math.round(heartRate)}`, unit: 'bpm' });
   }
   return {
@@ -2859,6 +3115,7 @@ ui.file.addEventListener('change', async () => {
   state.previewPaused = false;
   ui.preview.textContent = 'Play preview';
   try {
+    clearStatisticsOverrides();
     setStatus('Reading GPX activity', 'The file stays on this computer.');
     state.sourceText = await file.text();
     state.sourceFileName = file.name;
@@ -2875,7 +3132,7 @@ ui.file.addEventListener('change', async () => {
     discardPreparedMap();
     ui.fileName.textContent = file.name;
     ui.title.value = state.activity.title;
-    ui.activityHeading.textContent = `${state.activity.title} · ${(state.activity.totalDistance / 1000).toFixed(1)} km`;
+    updateStatisticsDisplay();
     updateHeartRateAvailability();
     updateTrimControl();
     drawPreviewOverlays(0);
@@ -2911,6 +3168,7 @@ for (const control of [ui.token, ui.labels, ui.duration, ui.resolution, ui.fps, 
     refreshControlLabels();
     saveSettings();
     if (control === ui.orientation) setOrientation();
+    if (control === ui.metric) updateStatisticsDisplay();
     if (control === ui.labelSize) updateLabelSize();
     if (control === ui.routeColor) drawTrimPreview();
     if ([ui.routeColor, ui.routeColoring].includes(control) && state.ready) updateScene(state.currentProgress);
@@ -2931,6 +3189,32 @@ for (const control of [ui.labels, ui.quality]) {
   });
 }
 ui.title.addEventListener('input', () => drawPreviewOverlays(state.currentProgress));
+for (const control of [ui.statsDistance, ui.statsElevation, ui.statsMovingTime, ui.statsHeartRate]) {
+  control.addEventListener('input', () => {
+    const distance = Number(ui.statsDistance.value);
+    const elevation = Number(ui.statsElevation.value);
+    const movingSeconds = parseDurationInput(ui.statsMovingTime.value);
+    const averageHeartRate = Number(ui.statsHeartRate.value);
+    ui.statsDistance.setCustomValidity(ui.statsDistance.value.trim() && (!Number.isFinite(distance) || distance <= 0)
+      ? 'Enter a distance greater than zero.'
+      : '');
+    ui.statsElevation.setCustomValidity(ui.statsElevation.value.trim() && (!Number.isFinite(elevation) || elevation < 0)
+      ? 'Enter zero or a positive elevation gain.'
+      : '');
+    ui.statsMovingTime.setCustomValidity(ui.statsMovingTime.value.trim() && (!Number.isFinite(movingSeconds) || movingSeconds <= 0)
+      ? 'Use hh:mm:ss or mm:ss.'
+      : '');
+    ui.statsHeartRate.setCustomValidity(ui.statsHeartRate.value.trim()
+      && (!Number.isFinite(averageHeartRate) || averageHeartRate < 25 || averageHeartRate > 250)
+      ? 'Enter an average heart rate between 25 and 250 bpm.'
+      : '');
+    updateStatisticsDisplay();
+    drawPreviewOverlays(state.currentProgress);
+  });
+}
+for (const control of [ui.statsDistance, ui.statsElevation, ui.statsHeartRate]) {
+  control.addEventListener('focus', () => seedAutomaticStatistic(control));
+}
 window.addEventListener('resize', () => {
   drawPreviewOverlays(state.currentProgress);
   drawTrimPreview();
@@ -2943,4 +3227,5 @@ if ('serviceWorker' in navigator) {
 await loadSettings();
 updateTrimControl();
 updateHeartRateAvailability();
+updateStatisticsDisplay();
 setStatus('Ready', 'Choose a GPX file. GPX data stays on this computer.');

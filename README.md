@@ -10,6 +10,16 @@ GPX Motion turns a GPX activity into a smooth 3D terrain animation in a web brow
 - A Mapbox public access token
 - FFmpeg is optional but recommended on Linux for automatic MP4 conversion
 
+## Getting a Mapbox access token
+
+1. Create a Mapbox account or sign in at the [Mapbox website](https://account.mapbox.com/).
+2. Open the [Mapbox Access Tokens page](https://console.mapbox.com/account/access-tokens/).
+3. Find **Default public token** and select the copy button. You can also create a separate public token for GPX Motion by selecting **Create a token**.
+4. Copy a **public** token beginning with `pk.`. Never paste a secret token beginning with `sk.` into GPX Motion.
+5. Start GPX Motion and paste the copied value into **Mapbox access token**.
+
+Mapbox automatically creates a default public token for each account. The token downloads the satellite imagery, terrain, and map labels required for the animation. Mapbox usage limits and account terms apply.
+
 ## Starting the application
 
 ### macOS
@@ -47,6 +57,16 @@ Keep the terminal window open while using the application. Close it, or press **
 
 The video is saved in the `out` folder next to the launch files. If local saving is unavailable, the browser downloads the file to its normal Downloads folder. GPX Motion renders an exact number of frames for smooth playback. It exports MP4 directly when the browser supports it. On systems without browser H.264 support, it creates a seekable WebM with proper duration and automatically converts it to H.264 MP4 when FFmpeg is installed. Without FFmpeg, the complete WebM is kept instead.
 
+## How activity statistics are calculated
+
+- **Distance** uses the distance stream recorded in the GPX file when one is available. Otherwise, it is calculated from consecutive GPS coordinates. Separate GPX track segments are not joined with an artificial straight line.
+- **Average pace and speed** use moving time. A uniform, uninterrupted GPX timeline is treated as already pause-free so temporary repeated GPS coordinates do not shorten it again. For other files, moving time is estimated from the recorded timestamps and movement.
+- **Elevation gain** uses a smoothed elevation profile and ignores changes smaller than 2 metres to reduce GPS and altimeter noise.
+
+Small differences from another sports platform can remain because a GPX export may not include the original device distance, pause events, barometric metadata, or the platform's corrected elevation data.
+
+To reproduce the final statistics shown by another platform exactly, enter its **Distance**, **Moving time**, **Elevation gain**, and **Average heart rate** in **Final activity statistics**. Leave any field blank to keep GPX Motion's automatic value. These overrides change the displayed statistics only; they do not alter the route geometry. They are cleared when a new GPX file is loaded or the activity is trimmed.
+
 ## Interface guide
 
 ### Activity and map
@@ -54,7 +74,7 @@ The video is saved in the `out` folder next to the launch files. If local saving
 - **GPX activity** selects the `.gpx` file that contains the recorded route.
 - **Video title** controls the title displayed in the exported video's heads-up display. The GPX activity name is filled in automatically and can be changed.
 - **Mapbox access token** authorizes satellite imagery, terrain, and map data. **Show** reveals or hides the token.
-- **Show places, peaks, rivers and lakes** adds useful geographic labels while excluding most shops and other minor points of interest.
+- **Show places, peaks, rivers and lakes** adds useful geographic labels while excluding most shops and other minor points of interest. It is enabled by default.
 - **Show heart rate on heads-up display when available** adds current and average heart rate when the GPX file contains heart-rate samples.
 
 ### Trim activity
@@ -64,6 +84,16 @@ The video is saved in the `out` folder next to the launch files. If local saving
 - The line below the slider shows the retained distance and duration.
 - Moving a handle immediately updates the 2D route preview. Releasing it updates the prepared 3D view.
 - All displayed statistics are recalculated for the retained section.
+
+### Final activity statistics
+
+- **Distance** optionally replaces the automatically calculated final distance and proportionally scales the live distance shown during the animation.
+- **Elevation gain** optionally replaces the automatically calculated gain on the final frame.
+- **Moving time** accepts `hh:mm:ss` or `mm:ss`. It controls the HUD time and is used together with distance to calculate the final average pace or speed. The HUD displays moving time only, not total elapsed time.
+- HUD time uses `mm:ss` below one hour and switches to `h:mm:ss` immediately at 60 minutes.
+- **Average heart rate** optionally replaces the automatically calculated average on the final frame. Current heart rate during the animation still comes from the GPX samples.
+- Empty fields use the values calculated from the GPX file.
+- When a blank numeric field receives focus, it starts from the automatic GPX value. Its up/down arrows therefore adjust the automatic value instead of starting at zero.
 
 ### Video settings
 
@@ -76,7 +106,7 @@ The video is saved in the `out` folder next to the launch files. If local saving
   - **Balanced** is the recommended default.
   - **Best** uses a sharper internal map render and more route color segments.
 - **Movement metric** selects automatic detection, running pace in min/km, or cycling speed in km/h.
-- **Video format** selects horizontal 16:9 or vertical 9:16 video.
+- **Video format** selects horizontal 16:9 or vertical 9:16 video. Vertical is the default.
 
 ### Route appearance
 
