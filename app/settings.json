@@ -1,0 +1,18 @@
+{
+  "camera_distance": 1,
+  "show_heart_rate": true,
+  "hud_top": 6,
+  "camera_height": 1,
+  "render_mode": "Balanced",
+  "quality": "1080p",
+  "label_font_scale": 0.9,
+  "font_scale": 1.2,
+  "orientation": "vertical",
+  "mapbox_token": "",
+  "fps": 60,
+  "route_color": "#e32400",
+  "metric": "Automatic",
+  "route_color_mode": "speed",
+  "seconds": 25,
+  "map_labels": true
+}

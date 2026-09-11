@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>GPX Motion</title>
+  <link rel="icon" type="image/svg+xml" href="./gpx-motion-icon.svg">
+  <link rel="stylesheet" href="./vendor/maplibre-gl.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="controls" aria-label="Video settings">
+      <header class="brand">
+        <img class="brand-mark" src="./gpx-motion-icon.svg" alt="">
+        <div>
+          <h1>GPX Motion</h1>
+          <p>3D route video renderer</p>
+        </div>
+      </header>
+
+      <section class="control-section first-section">
+        <label class="field-label" for="gpx-file">GPX activity</label>
+        <label class="file-picker" for="gpx-file">
+          <span id="file-name">Choose a GPX file</span>
+          <strong>Browse</strong>
+        </label>
+        <input id="gpx-file" type="file" accept=".gpx,application/gpx+xml">
+
+        <label class="field-label" for="video-title">Video title</label>
+        <input id="video-title" type="text" maxlength="100" placeholder="Activity title">
+
+        <label class="field-label" for="mapbox-token">Mapbox access token</label>
+        <div class="token-row">
+          <input id="mapbox-token" type="password" autocomplete="off" placeholder="pk.…">
+          <button id="toggle-token" class="icon-button" type="button" aria-label="Show access token">Show</button>
+        </div>
+        <label class="check-row">
+          <input id="map-labels" type="checkbox">
+          <span>Show places, peaks, rivers and lakes</span>
+        </label>
+        <label class="check-row">
+          <input id="heart-rate" type="checkbox" disabled>
+          <span id="heart-rate-text">Show heart rate on heads-up display when available</span>
+        </label>
+      </section>
+
+      <section class="control-section trim-section">
+        <label class="trim-heading" for="trim-start">
+          <span>Trim activity</span>
+          <output id="trim-value">00:00:00 – 00:00:00</output>
+        </label>
+        <div class="dual-range" id="trim-range">
+          <span class="dual-range-track" aria-hidden="true"><i id="trim-fill"></i></span>
+          <input id="trim-start" type="range" min="0" max="1" step="1" value="0" aria-label="Trim start" disabled>
+          <input id="trim-end" type="range" min="0" max="1" step="1" value="1" aria-label="Trim end" disabled>
+        </div>
+        <p id="trim-detail">Load a GPX activity to trim it.</p>
+      </section>
+
+      <section class="control-section compact-grid">
+        <label>
+          <span>Duration</span>
+          <span class="input-with-unit"><input id="duration" type="number" min="1" max="600" step="1" value="15"><i>s</i></span>
+        </label>
+        <label>
+          <span>Resolution</span>
+          <select id="resolution">
+            <option value="720p">720p</option>
+            <option value="1080p" selected>1080p</option>
+            <option value="4K">4K</option>
+          </select>
+        </label>
+        <label>
+          <span>FPS</span>
+          <select id="fps">
+            <option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option>
+          </select>
+        </label>
+        <label>
+          <span>Render quality</span>
+          <select id="render-quality">
+            <option>Fast</option><option selected>Balanced</option><option>Best</option>
+          </select>
+        </label>
+        <label>
+          <span>Movement metric</span>
+          <select id="metric">
+            <option>Automatic</option><option>Pace (min/km)</option><option>Speed (km/h)</option>
+          </select>
+        </label>
+        <label>
+          <span>Video format</span>
+          <select id="orientation">
+            <option value="horizontal">Horizontal (16:9)</option>
+            <option value="vertical">Vertical (9:16)</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="control-section">
+        <label class="field-label" for="route-coloring">Route coloring</label>
+        <select id="route-coloring">
+          <option value="single">Single color</option>
+          <option value="speed">Speed: red → green</option>
+        </select>
+        <div class="color-row">
+          <label for="route-color">Route and marker color</label>
+          <input id="route-color" type="color" value="#fc4c02">
+          <output id="route-color-value" for="route-color">#FC4C02</output>
+        </div>
+      </section>
+
+      <section class="control-section sliders">
+        <label for="hud-top"><span>Heads-up display distance from top</span><output id="hud-top-value">4%</output></label>
+        <input id="hud-top" type="range" min="2" max="18" step="1" value="4">
+        <label for="hud-size"><span>Heads-up display font size</span><output id="hud-size-value">1.0x</output></label>
+        <input id="hud-size" type="range" min="0.9" max="2" step="0.1" value="1">
+        <label for="label-size"><span>Map label font size</span><output id="label-size-value">1.0x</output></label>
+        <input id="label-size" type="range" min="0.5" max="2" step="0.1" value="1">
+        <label for="camera-distance"><span>Camera distance</span><output id="camera-distance-value">1.0x</output></label>
+        <input id="camera-distance" type="range" min="0.6" max="2.5" step="0.1" value="1">
+        <label for="camera-height"><span>Camera height</span><output id="camera-height-value">1.0x</output></label>
+        <input id="camera-height" type="range" min="0.6" max="2.2" step="0.1" value="1">
+      </section>
+
+      <div class="actions">
+        <button id="prepare" class="primary" type="button">Prepare 3D map</button>
+        <button id="preview" type="button" disabled>Play preview</button>
+        <button id="export" type="button" disabled>Export video</button>
+        <button id="cancel" class="danger" type="button" hidden>Stop</button>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="workspace-header">
+        <div>
+          <span class="eyebrow">LIVE PREVIEW</span>
+          <h2 id="activity-heading">Choose an activity</h2>
+        </div>
+        <span id="engine-badge" class="engine-badge">WEBGL</span>
+      </header>
+
+      <div id="viewport-shell" class="viewport horizontal" aria-label="3D video preview">
+        <div id="map"></div>
+        <canvas id="trim-preview" hidden aria-label="Preview of the selected part of the GPX route"></canvas>
+        <canvas id="preview-hud"></canvas>
+        <div id="empty-state">
+          <span class="empty-route" aria-hidden="true"></span>
+          <strong>Your 3D route will appear here</strong>
+          <p>Select a GPX file and prepare the map.</p>
+        </div>
+      </div>
+
+      <div class="render-status" aria-live="polite">
+        <div>
+          <strong id="status">Ready</strong>
+          <span id="status-detail">GPX files stay on this computer.</span>
+        </div>
+        <span id="frame-counter">Frame – / –</span>
+      </div>
+      <progress id="progress" value="0" max="1"></progress>
+    </section>
+  </main>
+
+  <canvas id="record-canvas" hidden></canvas>
+  <script src="./vendor/mp4-muxer.js"></script>
+  <script src="./vendor/webm-muxer.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
